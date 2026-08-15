@@ -4,6 +4,8 @@ import numpy as np
 from detector import FeatureDetector
 from matcher import FeatureMatcher
 from homography import estimate_homography
+from pose_estimator import create_camera_matrix, estimate_pose
+from renderer import draw_cube
 
 
 MIN_MATCHES = 12
@@ -40,7 +42,19 @@ def main():
     if not cap.isOpened():
         raise RuntimeError("Unable to access the webcam.")
 
-    print("VisionAR homography detection started.")
+    success, first_frame = cap.read()
+
+    if not success:
+        raise RuntimeError("Unable to read webcam frame.")
+
+    frame_height, frame_width = first_frame.shape[:2]
+
+    camera_matrix = create_camera_matrix(
+        frame_width,
+        frame_height,
+    )
+
+    print("VisionAR 3D pose estimation started.")
     print("Press Q to quit.")
 
     while True:
@@ -53,7 +67,7 @@ def main():
 
         matches = matcher.match(
             marker_descriptors,
-            frame_descriptors
+            frame_descriptors,
         )
 
         best_matches = matches[:50]
@@ -62,7 +76,7 @@ def main():
             marker_keypoints,
             frame_keypoints,
             best_matches,
-            MIN_MATCHES
+            MIN_MATCHES,
         )
 
         status = "Marker not detected"
@@ -70,19 +84,36 @@ def main():
         if homography is not None:
             projected_corners = cv2.perspectiveTransform(
                 marker_corners,
-                homography
+                homography,
             )
+
+            rotation_vector, translation_vector = estimate_pose(
+                marker_width,
+                marker_height,
+                projected_corners,
+                camera_matrix,
+            )
+
+            if rotation_vector is not None:
+                frame = draw_cube(
+                    frame,
+                    rotation_vector,
+                    translation_vector,
+                    camera_matrix,
+                    marker_width,
+                    marker_height,
+                )
+
+                status = "AR tracking active"
 
             frame = cv2.polylines(
                 frame,
                 [np.int32(projected_corners)],
                 True,
                 (0, 255, 0),
-                3,
-                cv2.LINE_AA
+                2,
+                cv2.LINE_AA,
             )
-
-            status = "Marker detected"
 
         cv2.putText(
             frame,
@@ -90,8 +121,10 @@ def main():
             (20, 40),
             cv2.FONT_HERSHEY_SIMPLEX,
             1,
-            (0, 255, 0) if homography is not None else (0, 0, 255),
-            2
+            (0, 255, 0)
+            if homography is not None
+            else (0, 0, 255),
+            2,
         )
 
         cv2.putText(
@@ -101,12 +134,12 @@ def main():
             cv2.FONT_HERSHEY_SIMPLEX,
             0.8,
             (255, 255, 255),
-            2
+            2,
         )
 
         cv2.imshow(
-            "VisionAR - Homography Detection",
-            frame
+            "VisionAR - 3D Augmented Reality",
+            frame,
         )
 
         if cv2.waitKey(1) & 0xFF == ord("q"):
