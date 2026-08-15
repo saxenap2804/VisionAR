@@ -4,8 +4,10 @@ import numpy as np
 from detector import FeatureDetector
 from matcher import FeatureMatcher
 from homography import estimate_homography
-from pose_estimator import create_camera_matrix, estimate_pose
-from renderer import draw_cube
+from pose_estimator import create_camera_matrix
+from projection import projection_matrix
+from obj_loader import OBJModel
+from renderer import render_obj
 
 
 MIN_MATCHES = 12
@@ -22,9 +24,9 @@ def main():
             "Could not load assets/markers/marker.png"
         )
 
-    marker_keypoints, marker_descriptors = detector.detect(marker)
+    obj = OBJModel("assets/models/model.obj")
 
-    print(f"Marker keypoints: {len(marker_keypoints)}")
+    marker_keypoints, marker_descriptors = detector.detect(marker)
 
     marker_height, marker_width = marker.shape[:2]
 
@@ -54,7 +56,10 @@ def main():
         frame_height,
     )
 
-    print("VisionAR 3D pose estimation started.")
+    print(f"Marker keypoints: {len(marker_keypoints)}")
+    print(f"OBJ vertices: {len(obj.vertices)}")
+    print(f"OBJ faces: {len(obj.faces)}")
+    print("VisionAR OBJ rendering started.")
     print("Press Q to quit.")
 
     while True:
@@ -87,24 +92,19 @@ def main():
                 homography,
             )
 
-            rotation_vector, translation_vector = estimate_pose(
-                marker_width,
-                marker_height,
-                projected_corners,
+            projection = projection_matrix(
                 camera_matrix,
+                homography,
             )
 
-            if rotation_vector is not None:
-                frame = draw_cube(
-                    frame,
-                    rotation_vector,
-                    translation_vector,
-                    camera_matrix,
-                    marker_width,
-                    marker_height,
-                )
-
-                status = "AR tracking active"
+            frame = render_obj(
+                frame,
+                obj,
+                projection,
+                marker_width,
+                marker_height,
+                scale=1.0,
+            )
 
             frame = cv2.polylines(
                 frame,
@@ -114,6 +114,8 @@ def main():
                 2,
                 cv2.LINE_AA,
             )
+
+            status = "3D model tracking"
 
         cv2.putText(
             frame,
@@ -138,7 +140,7 @@ def main():
         )
 
         cv2.imshow(
-            "VisionAR - 3D Augmented Reality",
+            "VisionAR - OBJ Augmented Reality",
             frame,
         )
 

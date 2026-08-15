@@ -60,3 +60,48 @@ def draw_cube(
         )
 
     return frame
+def render_obj(
+    frame,
+    obj,
+    projection,
+    marker_width,
+    marker_height,
+    scale=3.0,
+):
+    """Render an OBJ model on top of the marker."""
+
+    vertices = np.array(
+        obj.vertices,
+        dtype=np.float32,
+    )
+
+    for face in obj.faces:
+        points = np.array(
+            [
+                vertices[index - 1]
+                for index in face
+            ],
+            dtype=np.float32,
+        )
+
+        points *= scale
+
+        points[:, 0] += marker_width / 2
+        points[:, 1] += marker_height / 2
+
+        projected = cv2.perspectiveTransform(
+            points.reshape(-1, 1, 3),
+            projection,
+        )
+
+        image_points = np.int32(
+            projected.reshape(-1, 2)
+        )
+
+        cv2.fillConvexPoly(
+            frame,
+            image_points,
+            (137, 27, 211),
+        )
+
+    return frame
