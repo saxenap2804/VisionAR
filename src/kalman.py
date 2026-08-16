@@ -14,9 +14,15 @@ class CornerKalmanFilter:
         self.state_size = 16
         self.measurement_size = 8
 
-        self.x = np.zeros((16, 1), dtype=np.float64)
+        self.x = np.zeros(
+            (self.state_size, 1),
+            dtype=np.float64,
+        )
 
-        self.P = np.eye(16, dtype=np.float64)
+        self.P = np.eye(
+            self.state_size,
+            dtype=np.float64,
+        )
 
         self.q = q
         self.r = r
@@ -28,7 +34,10 @@ class CornerKalmanFilter:
         Constant-velocity system model.
         """
 
-        A = np.eye(16, dtype=np.float64)
+        A = np.eye(
+            self.state_size,
+            dtype=np.float64,
+        )
 
         for i in range(8):
             A[i, i + 8] = dt
@@ -43,9 +52,18 @@ class CornerKalmanFilter:
         not velocities.
         """
 
-        H = np.zeros((8, 16), dtype=np.float64)
+        H = np.zeros(
+            (
+                self.measurement_size,
+                self.state_size,
+            ),
+            dtype=np.float64,
+        )
 
-        H[:, :8] = np.eye(8)
+        H[:, :8] = np.eye(
+            self.measurement_size,
+            dtype=np.float64,
+        )
 
         return H
 
@@ -54,14 +72,26 @@ class CornerKalmanFilter:
         Process noise covariance.
         """
 
-        position_noise = np.zeros((8, 8))
+        position_noise = np.zeros(
+            (8, 8),
+            dtype=np.float64,
+        )
 
-        velocity_noise = np.eye(8) * (self.q ** 2)
+        velocity_noise = (
+            np.eye(8, dtype=np.float64)
+            * (self.q ** 2)
+        )
 
         return np.block(
             [
-                [position_noise, position_noise],
-                [position_noise, velocity_noise],
+                [
+                    position_noise,
+                    position_noise,
+                ],
+                [
+                    position_noise,
+                    velocity_noise,
+                ],
             ]
         )
 
@@ -70,32 +100,65 @@ class CornerKalmanFilter:
         Measurement noise covariance.
         """
 
-        return np.eye(8) * (self.r ** 2)
+        return (
+            np.eye(
+                self.measurement_size,
+                dtype=np.float64,
+            )
+            * (self.r ** 2)
+        )
 
     def initialize(self, corners):
         """
         Initialize state from four detected corners.
         """
 
-        positions = corners.reshape(8, 1).astype(np.float64)
+        if corners is None:
+            raise ValueError(
+                "Corners cannot be None."
+            )
+
+        positions = np.asarray(
+            corners,
+            dtype=np.float64,
+        ).reshape(8, 1)
 
         self.x[:8] = positions
-        self.x[8:] = 0
+
+        # Initial velocities are zero.
+        self.x[8:] = 0.0
+
+        # Reset covariance when initializing.
+        self.P = np.eye(
+            self.state_size,
+            dtype=np.float64,
+        )
 
         self.initialized = True
 
     def predict(self, dt=1.0):
         """
         Prediction step.
+
+        Returns predicted corner positions.
         """
+
+        if not self.initialized:
+            return None
 
         A = self.get_A(dt)
         Q = self.get_Q()
 
+        # State prediction:
+        # x_k = A * x_(k-1)
         self.x = A @ self.x
 
+        # Covariance prediction:
+        # P_k = A * P_(k-1) * A^T + Q
         self.P = (
-            A @ self.P @ A.T
+            A
+            @ self.P
+            @ A.T
             + Q
         )
 
@@ -106,31 +169,61 @@ class CornerKalmanFilter:
         Correction step using detected corner positions.
         """
 
+        if corners is None:
+            return self.get_corners()
+
+        if not self.initialized:
+            self.initialize(corners)
+            return self.get_corners()
+
         H = self.get_H()
         R = self.get_R()
 
-        z = corners.reshape(8, 1).astype(np.float64)
+        z = np.asarray(
+            corners,
+            dtype=np.float64,
+        ).reshape(8, 1)
 
-        innovation = z - H @ self.x
+        # Innovation / residual:
+        # y = z - Hx
+        innovation = (
+            z
+            - H @ self.x
+        )
 
+        # Innovation covariance:
+        # S = HPH^T + R
         innovation_covariance = (
-            H @ self.P @ H.T
+            H
+            @ self.P
+            @ H.T
             + R
         )
 
+        # Kalman gain:
+        # K = PH^T S^-1
         kalman_gain = (
             self.P
             @ H.T
-            @ np.linalg.inv(innovation_covariance)
+            @ np.linalg.inv(
+                innovation_covariance
+            )
         )
 
+        # Correct state:
+        # x = x + Ky
         self.x = (
             self.x
             + kalman_gain @ innovation
         )
 
-        identity = np.eye(16)
+        identity = np.eye(
+            self.state_size,
+            dtype=np.float64,
+        )
 
+        # Correct covariance:
+        # P = (I - KH)P
         self.P = (
             identity
             - kalman_gain @ H
@@ -142,8 +235,33 @@ class CornerKalmanFilter:
         """
         Return filtered corner positions
         in OpenCV-compatible format.
+
+        Shape:
+            (4, 1, 2)
         """
 
-        return self.x[:8].reshape(4, 1, 2).astype(
-            np.float32
+        if not self.initialized:
+            return None
+
+        return (
+            self.x[:8]
+            .reshape(4, 1, 2)
+            .astype(np.float32)
         )
+
+    def reset(self):
+        """
+        Reset the Kalman filter to its initial state.
+        """
+
+        self.x = np.zeros(
+            (self.state_size, 1),
+            dtype=np.float64,
+        )
+
+        self.P = np.eye(
+            self.state_size,
+            dtype=np.float64,
+        )
+
+        self.initialized = False
